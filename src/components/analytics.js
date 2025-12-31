@@ -22,23 +22,23 @@ ChartJS.register(
 );
 
 function Analytics() {
-  const sleepDurationData = {
-    labels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+  const sleepData = {
+    labels: ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],
     datasets: [
       {
-        label: "Sleep Duration (hrs)",
-        data: [6, 7, 8, 6.5, 7.5, 8, 7],
+        label: "Sleep Hours",
+        data: [6,7,8,6.5,7.5,8,7],
         backgroundColor: "#6366f1",
       },
     ],
   };
 
   const movementData = {
-    labels: ["12AM", "2AM", "4AM", "6AM"],
+    labels: ["12AM","2AM","4AM","6AM"],
     datasets: [
       {
         label: "Movement Level",
-        data: [20, 45, 30, 15],
+        data: [20,45,30,15],
         borderColor: "#22c55e",
         fill: false,
       },
@@ -51,7 +51,7 @@ function Analytics() {
 
       <div className="chart-card">
         <h3>Weekly Sleep Duration</h3>
-        <Bar data={sleepDurationData} />
+        <Bar data={sleepData} />
       </div>
 
       <div className="chart-card">

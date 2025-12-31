@@ -7,19 +7,17 @@ function Navbar({ setPage, darkMode, setDarkMode }) {
   return (
     <nav className="navbar">
       <div className="logo">
-        <img src={logo} alt="MindSleep Logo" />
+        <img src={logo} alt="logo" />
         <span>MindSleep</span>
       </div>
 
       <div className="hamburger" onClick={() => setOpen(!open)}>
-        <span></span>
-        <span></span>
-        <span></span>
+        <span></span><span></span><span></span>
       </div>
 
       <div className={open ? "menu open" : "menu"}>
-        <button onClick={() => { setPage("dashboard"); setOpen(false); }}>
-          Dashboard
+        <button onClick={() => { setPage("home"); setOpen(false); }}>
+          Home
         </button>
         <button onClick={() => { setPage("analytics"); setOpen(false); }}>
           Analytics

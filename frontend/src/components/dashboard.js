@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { runPrediction } from "../services/predictionService";
 
 function Dashboard() {
@@ -14,11 +14,18 @@ function Dashboard() {
   const [battery, setBattery] = useState(100);
   const [sessionData, setSessionData] = useState([]);
 
-  let bluetoothDevice = null;
-  let characteristic = null;
+  const deviceRef = useRef(null);
+  const charRef = useRef(null);
 
   // =========================
-  // 😴 Sleep Quality (Duration Based)
+  // CLEAR OLD SESSION
+  // =========================
+  useEffect(() => {
+    localStorage.removeItem("liveSession");
+  }, []);
+
+  // =========================
+  // 😴 Sleep Quality
   // =========================
   function getSleepLevel(hours) {
     if (hours < 4) return "Poor";
@@ -27,7 +34,7 @@ function Dashboard() {
   }
 
   // =========================
-  // 🧠 Sleep Score (ML Support)
+  // 🧠 Sleep Score
   // =========================
   function calculateSleepScore(hr, spo2, movement, sleep_hours) {
     let score = 100;
@@ -48,118 +55,9 @@ function Dashboard() {
   }
 
   // =========================
-  // 🔵 BLUETOOTH CONNECT
+  // 🛑 STOP FUNCTION (FIXED)
   // =========================
-  const connectBluetooth = async () => {
-    try {
-      bluetoothDevice = await navigator.bluetooth.requestDevice({
-        acceptAllDevices: true,
-        optionalServices: ["12345678-1234-1234-1234-1234567890ab"]
-      });
-
-      const server = await bluetoothDevice.gatt.connect();
-
-      setDeviceConnected(true);
-      console.log("Connected:", bluetoothDevice.name);
-
-      bluetoothDevice.addEventListener("gattserverdisconnected", () => {
-        setDeviceConnected(false);
-        setRunning(false);
-        alert("❌ Device Disconnected");
-      });
-
-      const service = await server.getPrimaryService(
-        "12345678-1234-1234-1234-1234567890ab"
-      );
-
-      characteristic = await service.getCharacteristic(
-        "abcd1234-5678-1234-5678-1234567890ab"
-      );
-
-      await characteristic.startNotifications();
-
-      characteristic.addEventListener("characteristicvaluechanged", (event) => {
-        const value = new TextDecoder().decode(event.target.value);
-
-        // 🚨 Hand removed alert
-        if (value.includes("ALERT")) {
-          alert("🚨 Hand Removed!");
-          setRunning(false);
-          return;
-        }
-
-        const [hr, sp, move] = value.split(",");
-
-        const score = calculateSleepScore(
-          Number(hr),
-          Number(sp),
-          Number(move),
-          time / 3600
-        );
-
-        setHeartRate(Number(hr));
-        setSpo2(Number(sp));
-        setSleepScore(score);
-
-        setSessionData(prev => [
-          ...prev,
-          {
-            heart_rate: Number(hr),
-            spo2: Number(sp),
-            movement: Number(move),
-            sleep_score: score,
-            time: Date.now()
-          }
-        ]);
-      });
-
-    } catch (err) {
-      console.log("Bluetooth Error:", err);
-      setDeviceConnected(false);
-    }
-  };
-
-  // =========================
-  // ⏱ TIMER
-  // =========================
-  useEffect(() => {
-    let interval;
-
-    if (running) {
-      interval = setInterval(() => {
-        setTime(prev => {
-          const newTime = prev + 1;
-
-          // Auto stop after 5 mins
-          if (newTime >= 300) {
-            handleStop();
-          }
-
-          return newTime;
-        });
-
-        setBattery(prev => (prev > 0 ? prev - 0.02 : 0));
-
-      }, 1000);
-    }
-
-    return () => clearInterval(interval);
-  }, [running]);
-
-  // =========================
-  // ⏱ FORMAT TIME
-  // =========================
-  const formatTime = () => {
-    const h = String(Math.floor(time / 3600)).padStart(2, "0");
-    const m = String(Math.floor((time % 3600) / 60)).padStart(2, "0");
-    const s = String(time % 60).padStart(2, "0");
-    return `${h}:${m}:${s}`;
-  };
-
-  // =========================
-  // 🛑 STOP
-  // =========================
-  const handleStop = async () => {
+  const handleStop = useCallback(async () => {
     setRunning(false);
 
     if (sessionData.length === 0) return;
@@ -183,6 +81,7 @@ function Dashboard() {
     localStorage.setItem("history", JSON.stringify(history));
 
     localStorage.setItem("lastSession", JSON.stringify(sessionData));
+    localStorage.removeItem("liveSession");
 
     try {
       const result = await runPrediction(finalData);
@@ -191,6 +90,149 @@ function Dashboard() {
     } catch {
       alert("❌ Server Error");
     }
+
+  }, [sessionData, time]);
+
+  // =========================
+  // 🔵 BLUETOOTH CONNECT
+  // =========================
+  const connectBluetooth = async () => {
+    try {
+      const device = await navigator.bluetooth.requestDevice({
+        acceptAllDevices: true,
+        optionalServices: ["12345678-1234-1234-1234-1234567890ab"]
+      });
+
+      const server = await device.gatt.connect();
+      deviceRef.current = device;
+
+      const service = await server.getPrimaryService(
+        "12345678-1234-1234-1234-1234567890ab"
+      );
+
+      const characteristic = await service.getCharacteristic(
+        "abcd1234-5678-1234-5678-1234567890ab"
+      );
+
+      charRef.current = characteristic;
+
+      await characteristic.startNotifications();
+
+      setDeviceConnected(true);
+
+      device.addEventListener("gattserverdisconnected", () => {
+        setDeviceConnected(false);
+        setRunning(false);
+        alert("❌ Device Disconnected");
+      });
+
+      characteristic.addEventListener("characteristicvaluechanged", (event) => {
+
+        const value = new TextDecoder().decode(event.target.value);
+
+        if (value.includes("ALERT")) {
+          alert("🚨 Finger Removed!");
+          setRunning(false);
+          return;
+        }
+
+        const parts = value.split(",");
+        if (parts.length < 3) return;
+
+        const hr = Number(parts[0]);
+        const sp = Number(parts[1]);
+        const move = Number(parts[2]);
+
+        const score = calculateSleepScore(
+          hr,
+          sp,
+          move,
+          time / 3600
+        );
+
+        setHeartRate(hr);
+        setSpo2(sp);
+        setSleepScore(score);
+
+        setSessionData(prev => {
+          const updated = [
+            ...prev,
+            {
+              heart_rate: hr,
+              spo2: sp,
+              movement: move,
+              sleep_score: score,
+              time: Date.now()
+            }
+          ];
+
+          localStorage.setItem("liveSession", JSON.stringify(updated));
+          return updated;
+        });
+
+      });
+
+      return true;
+
+    } catch (err) {
+      console.log("Bluetooth Error:", err);
+      setDeviceConnected(false);
+      return false;
+    }
+  };
+
+  // =========================
+  // ▶ START
+  // =========================
+  const handleStart = async () => {
+    const success = await connectBluetooth();
+
+    if (!success) {
+      alert("❌ Bluetooth not connected");
+      return;
+    }
+
+    setRunning(true);
+    setSessionData([]);
+    setTime(0);
+  };
+
+  // =========================
+  // ⏱ TIMER (FIXED)
+  // =========================
+  useEffect(() => {
+    let interval;
+
+    if (running) {
+      interval = setInterval(() => {
+
+        setTime(prev => {
+          const newTime = prev + 1;
+
+          if (newTime >= 300) {
+            handleStop();
+          }
+
+          return newTime;
+        });
+
+        setBattery(prev => (prev > 0 ? prev - 0.02 : 0));
+
+      }, 1000);
+    }
+
+    return () => clearInterval(interval);
+
+  }, [running, handleStop]); // ✅ FIXED
+
+  // =========================
+  // ⏱ FORMAT TIME
+  // =========================
+  const formatTime = () => {
+    const h = String(Math.floor(time / 3600)).padStart(2, "0");
+    const m = String(Math.floor((time % 3600) / 60)).padStart(2, "0");
+    const s = String(time % 60).padStart(2, "0");
+    return `${h}:${m}:${s}`;
   };
 
   // =========================
@@ -212,15 +254,7 @@ function Dashboard() {
       <h1>MindSleep Dashboard</h1>
 
       <div className="buttons">
-        <button
-          className="start"
-          onClick={async () => {
-            await connectBluetooth();
-            setRunning(true);
-            setSessionData([]);
-            setTime(0);
-          }}
-        >
+        <button className="start" onClick={handleStart}>
           Start Sleep
         </button>
 

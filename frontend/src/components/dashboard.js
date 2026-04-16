@@ -18,13 +18,6 @@ function Dashboard() {
   const charRef = useRef(null);
 
   // =========================
-  // CLEAR OLD SESSION
-  // =========================
-  useEffect(() => {
-    localStorage.removeItem("liveSession");
-  }, []);
-
-  // =========================
   // 😴 Sleep Quality
   // =========================
   function getSleepLevel(hours) {
@@ -59,6 +52,7 @@ function Dashboard() {
   // =========================
   const handleStop = useCallback(async () => {
     setRunning(false);
+    localStorage.setItem("isSleeping", "false");
 
     if (sessionData.length === 0) return;
 
@@ -73,6 +67,7 @@ function Dashboard() {
       sleep_score: avg("sleep_score")
     };
 
+    // Save history
     const history = JSON.parse(localStorage.getItem("history")) || [];
     history.push({
       date: new Date().toLocaleDateString(),
@@ -80,6 +75,7 @@ function Dashboard() {
     });
     localStorage.setItem("history", JSON.stringify(history));
 
+    // Save session
     localStorage.setItem("lastSession", JSON.stringify(sessionData));
     localStorage.removeItem("liveSession");
 
@@ -115,52 +111,50 @@ function Dashboard() {
       );
 
       charRef.current = characteristic;
-
       await characteristic.startNotifications();
 
       setDeviceConnected(true);
 
+      // disconnect event
       device.addEventListener("gattserverdisconnected", () => {
         setDeviceConnected(false);
         setRunning(false);
+        localStorage.setItem("isSleeping", "false");
         alert("❌ Device Disconnected");
       });
 
+      // data listener
       characteristic.addEventListener("characteristicvaluechanged", (event) => {
 
         const value = new TextDecoder().decode(event.target.value);
 
         if (value.includes("ALERT")) {
-          alert("🚨 Finger Removed!");
+          alert("🚨 Hand Removed!");
           setRunning(false);
+          localStorage.setItem("isSleeping", "false");
           return;
         }
 
-        const parts = value.split(",");
-        if (parts.length < 3) return;
-
-        const hr = Number(parts[0]);
-        const sp = Number(parts[1]);
-        const move = Number(parts[2]);
+        const [hr, sp, move] = value.split(",");
 
         const score = calculateSleepScore(
-          hr,
-          sp,
-          move,
+          Number(hr),
+          Number(sp),
+          Number(move),
           time / 3600
         );
 
-        setHeartRate(hr);
-        setSpo2(sp);
+        setHeartRate(Number(hr));
+        setSpo2(Number(sp));
         setSleepScore(score);
 
         setSessionData(prev => {
           const updated = [
             ...prev,
             {
-              heart_rate: hr,
-              spo2: sp,
-              movement: move,
+              heart_rate: Number(hr),
+              spo2: Number(sp),
+              movement: Number(move),
               sleep_score: score,
               time: Date.now()
             }
@@ -172,35 +166,17 @@ function Dashboard() {
 
       });
 
-      return true;
-
     } catch (err) {
       console.log("Bluetooth Error:", err);
       setDeviceConnected(false);
-      return false;
     }
   };
 
   // =========================
-  // ▶ START
-  // =========================
-  const handleStart = async () => {
-    const success = await connectBluetooth();
-
-    if (!success) {
-      alert("❌ Bluetooth not connected");
-      return;
-    }
-
-    setRunning(true);
-    setSessionData([]);
-    setTime(0);
-  };
-
-  // =========================
-  // ⏱ TIMER (FIXED)
+  // ⏱ TIMER
   // =========================
   useEffect(() => {
+
     let interval;
 
     if (running) {
@@ -223,7 +199,7 @@ function Dashboard() {
 
     return () => clearInterval(interval);
 
-  }, [running, handleStop]); // ✅ FIXED
+  }, [running, handleStop]);
 
   // =========================
   // ⏱ FORMAT TIME
@@ -233,6 +209,19 @@ function Dashboard() {
     const m = String(Math.floor((time % 3600) / 60)).padStart(2, "0");
     const s = String(time % 60).padStart(2, "0");
     return `${h}:${m}:${s}`;
+  };
+
+  // =========================
+  // ▶ START
+  // =========================
+  const handleStart = async () => {
+    await connectBluetooth();
+
+    setRunning(true);
+    setSessionData([]);
+    setTime(0);
+
+    localStorage.setItem("isSleeping", "true"); // 🔥 IMPORTANT
   };
 
   // =========================
